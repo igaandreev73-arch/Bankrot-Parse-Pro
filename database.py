@@ -54,12 +54,35 @@ def init_database():
             )
         """)
         
-        # Создание индексов
+        # Создание таблицы analysis_cache для кеширования результатов анализа
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lot_id TEXT NOT NULL UNIQUE,
+                lot_name TEXT,
+                property_type TEXT,
+                region TEXT,
+                initial_price REAL,
+                liquidity_score INTEGER,
+                risk_level TEXT,
+                recommendation TEXT,
+                max_reasonable_price REAL,
+                key_factors TEXT,  -- JSON массив строк
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        
+        # Создание индексов для trades
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_region ON trades (region)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_parsed_at ON trades (parsed_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_lot_id ON trades (lot_id)")
         
-        logger.info("Database initialized: table 'trades' created with indexes")
+        # Создание индексов для analysis_cache
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_lot_id ON analysis_cache (lot_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_created_at ON analysis_cache (created_at)")
+        
+        logger.info("Database initialized: tables 'trades' and 'analysis_cache' created with indexes")
 
 
 def save_trades_to_db(df: pd.DataFrame) -> int:
@@ -149,7 +172,8 @@ def get_trades_from_db(
     limit: int = 100,
     offset: int = 0,
     region: Optional[str] = None,
-    min_discount: Optional[float] = None
+    min_discount: Optional[float] = None,
+    lot_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Получает лоты из базы данных с фильтрацией.
@@ -159,6 +183,7 @@ def get_trades_from_db(
         offset: Смещение для пагинации
         region: Фильтр по региону (регион содержит подстроку)
         min_discount: Минимальный процент скидки
+        lot_id: Фильтр по конкретному ID лота
         
     Returns:
         Список словарей с данными лотов
@@ -173,6 +198,10 @@ def get_trades_from_db(
     if min_discount is not None:
         query += " AND discount_percent >= ?"
         params.append(min_discount)
+    
+    if lot_id:
+        query += " AND lot_id = ?"
+        params.append(lot_id)
     
     query += " ORDER BY parsed_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
@@ -224,6 +253,116 @@ def cleanup_old_data(days_to_keep: int = 30):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM trades WHERE parsed_at < ?", (cutoff_date,))
+        deleted = cursor.rowcount
+    
+    logger.info(f"Cleaned up {deleted} old records (older than {days_to_keep} days)")
+    return deleted
+
+
+def get_cached_analysis(lot_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Получает закешированный анализ лота по его ID.
+    
+    Args:
+        lot_id: ID лота
+        
+    Returns:
+        Словарь с результатами анализа или None если нет в кеше
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                liquidity_score, risk_level, recommendation,
+                max_reasonable_price, key_factors, updated_at
+            FROM analysis_cache
+            WHERE lot_id = ?
+            """,
+            (lot_id,)
+        )
+        row = cursor.fetchone()
+        
+        if row:
+            # Преобразуем JSON строку key_factors обратно в список
+            import json
+            key_factors = json.loads(row['key_factors']) if row['key_factors'] else []
+            
+            return {
+                'liquidity_score': row['liquidity_score'],
+                'risk_level': row['risk_level'],
+                'recommendation': row['recommendation'],
+                'max_reasonable_price': row['max_reasonable_price'],
+                'key_factors': key_factors,
+                'cached_at': row['updated_at']
+            }
+    return None
+
+
+def save_analysis_to_cache(
+    lot_id: str,
+    lot_name: str,
+    property_type: str,
+    region: str,
+    initial_price: float,
+    liquidity_score: int,
+    risk_level: str,
+    recommendation: str,
+    max_reasonable_price: float,
+    key_factors: List[str]
+) -> None:
+    """
+    Сохраняет результат анализа в кеш.
+    
+    Args:
+        Все параметры анализа
+    """
+    import json
+    from datetime import datetime
+    
+    key_factors_json = json.dumps(key_factors, ensure_ascii=False)
+    now = datetime.now().isoformat()
+    
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO analysis_cache (
+                lot_id, lot_name, property_type, region, initial_price,
+                liquidity_score, risk_level, recommendation, max_reasonable_price,
+                key_factors, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lot_id, lot_name, property_type, region, initial_price,
+                liquidity_score, risk_level, recommendation, max_reasonable_price,
+                key_factors_json, now, now
+            )
+        )
+    
+    logger.info(f"Analysis cached for lot {lot_id}")
+
+
+def cleanup_old_records(days_to_keep: int = 30) -> int:
+    """
+    Удаляет старые записи из таблицы trades.
+    
+    Args:
+        days_to_keep: Количество дней для хранения
+        
+    Returns:
+        Количество удалённых записей
+    """
+    from datetime import datetime, timedelta
+    
+    cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).isoformat()
+    
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM trades WHERE parsed_at < ?",
+            (cutoff_date,)
+        )
         deleted = cursor.rowcount
     
     logger.info(f"Cleaned up {deleted} old records (older than {days_to_keep} days)")

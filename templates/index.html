@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bankrot Parser Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding-top: 20px;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+        }
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .loader {
+            display: none;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .modal-analysis .badge {
+            font-size: 0.9em;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 30px;
+        }
+        .filter-card {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Заголовок -->
+        <div class="row mb-4">
+            <div class="col">
+                <h1 class="display-5">Bankrot Parser Pro</h1>
+                <p class="lead">Парсинг и анализ данных о банкротствах</p>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary" onclick="runParser()">
+                    <i class="bi bi-play-circle"></i> Запустить парсер
+                </button>
+                <button class="btn btn-success" onclick="analyzeAllNew()">
+                    <i class="bi bi-robot"></i> Анализ всех новых
+                </button>
+                <button class="btn btn-secondary" onclick="exportCSV()">
+                    <i class="bi bi-download"></i> Экспорт CSV
+                </button>
+            </div>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="card filter-card">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Регион</label>
+                    <select id="regionFilter" class="form-select" onchange="loadTrades()">
+                        <option value="">Все регионы</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Минимальная скидка: <span id="discountValue">0%</span></label>
+                    <input type="range" class="form-range" id="discountFilter" min="0" max="100" value="0" oninput="updateDiscountValue(this.value)" onchange="loadTrades()">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Лимит записей</label>
+                    <input type="number" class="form-control" id="limitFilter" min="1" max="1000" value="100" onchange="loadTrades()">
+                </div>
+            </div>
+        </div>
+
+        <!-- Графики -->
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Скидки по регионам</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="discountChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Динамика по дням</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="dailyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Таблица данных -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Лоты банкротства</h5>
+                <span class="badge bg-primary" id="totalTrades">0 записей</span>
+            </div>
+            <div class="card-body">
+                <div class="table-container">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Регион</th>
+                                <th>Начальная цена</th>
+                                <th>Скидка</th>
+                                <th>Тип имущества</th>
+                                <th>Анализ DeepSeek</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesTable">
+                            <!-- Данные загружаются через JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between mt-3">
+                    <button class="btn btn-outline-secondary" onclick="prevPage()">
+                        <i class="bi bi-chevron-left"></i> Назад
+                    </button>
+                    <span id="pageInfo">Страница 1</span>
+                    <button class="btn btn-outline-secondary" onclick="nextPage()">
+                        Вперед <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Индикатор загрузки -->
+        <div id="loader" class="loader"></div>
+
+        <!-- Модальное окно анализа -->
+        <div class="modal fade" id="analysisModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Анализ лота</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body modal-analysis">
+                        <div id="analysisContent">
+                            <!-- Контент анализа -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Глобальные переменные
+        let currentPage = 1;
+        let pageSize = 100;
+        let totalTrades = 0;
+        let discountChart = null;
+        let dailyChart = null;
+
+        // Инициализация при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            loadRegions();
+            loadTrades();
+            loadStats();
+        });
+
+        // Обновление значения скидки
+        function updateDiscountValue(value) {
+            document.getElementById('discountValue').textContent = value + '%';
+        }
+
+        // Загрузка списка регионов
+        async function loadRegions() {
+            try {
+                const response = await fetch('/api/regions');
+                const data = await response.json();
+                const select = document.getElementById('regionFilter');
+                
+                data.regions.forEach(region => {
+                    const option = document.createElement('option');
+                    option.value = region;
+                    option.textContent = region;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки регионов:', error);
+            }
+        }
+
+        // Загрузка лотов
+        async function loadTrades() {
+            showLoader();
+            
+            const region = document.getElementById('regionFilter').value;
+            const minDiscount = document.getElementById('discountFilter').value;
+            const limit = document.getElementById('limitFilter').value;
+            const offset = (currentPage - 1) * pageSize;
+            
+            let url = `/api/trades?limit=${limit}&offset=${offset}`;
+            if (region) url += `&region=${encodeURIComponent(region)}`;
+            if (minDiscount > 0) url += `&min_discount=${minDiscount}`;
+            
+            try {
+                const response = await fetch(url);
+                const trades = await response.json();
+                
+                renderTradesTable(trades);
+                updatePagination();
+                hideLoader();
+            } catch (error) {
+                console.error('Ошибка загрузки лотов:', error);
+                hideLoader();
+                alert('Ошибка загрузки данных');
+            }
+        }
+
+        // Отображение таблицы лотов
+        function renderTradesTable(trades) {
+            const tbody = document.getElementById('tradesTable');
+            tbody.innerHTML = '';
+            
+            totalTrades = trades.length;
+            document.getElementById('totalTrades').textContent = totalTrades + ' записей';
+            
+            trades.forEach(trade => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${trade.lot_id}</td>
+                    <td>${trade.lot_name}</td>
+                    <td>${trade.region}</td>
+                    <td>${formatPrice(trade.initial_price)} руб.</td>
+                    <td>
+                        <span class="badge ${getDiscountBadgeClass(trade.discount_percent)}">
+                            ${trade.discount_percent.toFixed(1)}%
+                        </span>
+                    </td>
+                    <td>${trade.property_type}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="showAnalysis('${trade.lot_id}')">
+                            <i class="bi bi-graph-up"></i> Анализ
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Форматирование цены
+        function formatPrice(price) {
+            return new Intl.NumberFormat('ru-RU').format(price);
+        }
+
+        // Класс для бейджа скидки
+        function getDiscountBadgeClass(discount) {
+            if (discount >= 30) return 'bg-danger';
+            if (discount >= 20) return 'bg-warning';
+            if (discount >= 10) return 'bg-info';
+            return 'bg-secondary';
+        }
+
+        // Пагинация
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                loadTrades();
+            }
+        }
+
+        function nextPage() {
+            currentPage++;
+            loadTrades();
+        }
+
+        function updatePagination() {
+            document.getElementById('pageInfo').textContent = `Страница ${currentPage}`;
+        }
+
+        // Загрузка статистики и графиков
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats/advanced');
+                const stats = await response.json();
+                
+                updateCharts(stats);
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        // Обновление графиков
+        function updateCharts(stats) {
+            // График скидок по регионам
+            const discountCtx = document.getElementById('discountChart').getContext('2d');
+            const regions = Object.keys(stats.avg_discount_by_region);
+            const discounts = Object.values(stats.avg_discount_by_region);
+            
+            if (discountChart) discountChart.destroy();
+            
+            discountChart = new Chart(discountCtx, {
+                type: 'bar',
+                data: {
+                    labels: regions,
+                    datasets: [{
+                        label: 'Средняя скидка (%)',
+                        data: discounts,
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Скидка (%)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // График динамики по дням
+            const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+            const days = Object.keys(stats.trades_by_day).sort();
+            const counts = days.map(day => stats.trades_by_day[day]);
+            
+            if (dailyChart) dailyChart.destroy();
+            
+            dailyChart = new Chart(dailyCtx, {
+                type: 'line',
+                data: {
+                    labels: days,
+                    datasets: [{
+                        label: 'Количество лотов',
+                        data: counts,
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 2,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Количество'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Показать анализ лота
+        async function showAnalysis(lotId) {
+            showLoader();
+            
+            try {
+                const response = await fetch(`/api/analyze/${lotId}`);
+                const analysis = await response.json();
+                
+                renderAnalysisModal(analysis);
+                hideLoader();
+                
+                // Показать модальное окно
+                const modal = new bootstrap.Modal(document.getElementById('analysisModal'));
+                modal.show();
+            } catch (error) {
+                console.error('Ошибка загрузки анализа:', error);
+                hideLoader();
+                alert('Ошибка загрузки анализа');
+            }
+        }
+
+        // Отображение анализа в модальном окне
+        function renderAnalysisModal(analysis) {
+            const content = document.getElementById('analysisContent');
+            
+            const riskBadgeClass = {
+                'низкий': 'bg-success',
+                'средний': 'bg-warning',
+                'высокий': 'bg-danger'
+            }[analysis.risk_level] || 'bg-secondary';
+            
+            const recBadgeClass = {
+                'стоит участвовать': 'bg-success',
+                'стоит рассмотреть': 'bg-warning',
+                'не рекомендуется': 'bg-danger'
+            }[analysis.recommendation] || 'bg-secondary';
+            
+            content.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Оценка ликвидности</div>
+                            <div class="card-body">
+                                <div class="progress mb-3" style="height: 30px;">
+                                    <div class="progress-bar" role="progressbar" 
+                                         style="width: ${analysis.liquidity_score}%;"
+                                         aria-valuenow="${analysis.liquidity_score}" 
+                                         aria-valuemin="0" aria-valuemax="100">
+                                        ${analysis.liquidity_score}/100
+                                    </div>
+                                </div>
+                                <p class="mb-0">Чем выше показатель, тем выше ликвидность лота.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Рекомендации</div>
+                            <div class="card-body">
+                                <p><strong>Уровень риска:</strong> 
+                                    <span class="badge ${riskBadgeClass}">${analysis.risk_level}</span>
+                                </p>
+                                <p><strong>Рекомендация:</strong> 
+                                    <span class="badge ${recBadgeClass}">${analysis.recommendation}</span>
+                                </p>
+                                <p><strong>Максимальная разумная цена:</strong> 
+                                    ${formatPrice(analysis.max_reasonable_price)} руб.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Ключевые факторы</div>
+                    <div class="card-body">
+                        <ul class="list-group">
+                            ${analysis.key_factors.map(factor => `
+                                <li class="list-group-item">${factor}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                </div>
+                <div class="mt-3 text-muted">
+                    <small>
+                        Источник: ${analysis.source === 'cache' ? 'Кеш' : 'DeepSeek API'} 
+                        | ${analysis.cached ? 'Закешировано' : 'Новый анализ'}
+                    </small>
+                </div>
+            `;
+        }
+
+        // Запуск парсера
+        async function runParser() {
+            showLoader();
+            
+            try {
+                const response = await fetch('/api/run-parser');
+                const result = await response.json();
+                
+                hideLoader();
+                alert(result.message);
+                
+                // Обновить данные после парсинга
+                setTimeout(() => {
+                    loadTrades();
+                    loadStats();
+                }, 2000);
+            } catch (error) {
+                hideLoader();
+                alert('Ошибка запуска парсера: ' + error.message);
+            }
+        }
+
+        // Анализ всех новых лотов
+        async function analyzeAllNew() {
+            if (!confirm('Анализ всех новых лотов может занять время. Продолжить?')) return;
+            
+            showLoader();
+            
+            try {
+                // Получаем ID всех лотов без анализа
+                const tradesResponse = await fetch('/api/trades?limit=1000');
+                const trades = await tradesResponse.json();
+                
+                const lotIds = trades.map(trade => trade.lot_id);
+                
+                if (lotIds.length === 0) {
+                    hideLoader();
+                    alert('Нет лотов для анализа');
+                    return;
+                }
+                
+                // Анализируем пачкой
+                const response = await fetch('/api/analyze/batch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({lot_ids: lotIds})
+                });
+                
+                const result = await response.json();
+                hideLoader();
+                
+                alert(`Проанализировано ${result.results.length} лотов`);
+                loadTrades(); // Обновить таблицу
+                
+            } catch (error) {
+                hideLoader();
+                alert('Ошибка анализа: ' + error.message);
+            }
+        }
+
+        // Экспорт CSV
+        async function exportCSV() {
+            const region = document.getElementById('regionFilter').value;
+            const minDiscount = document.getElementById('discountFilter').value;
+            
+            let url = '/api/export?';
+            if (region) url += `region=${encodeURIComponent(region)}&`;
+            if (minDiscount > 0) url += `min_discount=${minDiscount}`;
+            
+            // Скачивание файла
+            window.location.href = url;
+        }
+
+        // Управление индикатором загрузки
+        function showLoader() {
+            document.getElementById('loader').style.display = 'block';
+        }
+
+        function hideLoader() {
+            document.getElementById('loader').style.display = 'none';
+        }
+
+        // Инициализация при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            loadRegions();
+            loadTrades();
+            loadStats();
+        });
+    </script>
+</body>
+</html>
