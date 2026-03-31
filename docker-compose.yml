@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  bankrot-parser-pro:
+    build: .
+    container_name: bankrot-parser-pro
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./database:/app/database
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - DATABASE_PATH=/app/database/bankrot.db
+      - PORT=8000
+    restart: unless-stopped
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
+
+  # Опционально: сервис для периодического парсинга (cron)
+  # parser-cron:
+  #   build: .
+  #   container_name: bankrot-parser-cron
+  #   volumes:
+  #     - ./database:/app/database
+  #     - ./data:/app/data
+  #   env_file:
+  #     - .env
+  #   command: python cli.py parse
+  #   restart: "no"
+  #   depends_on:
+  #     - bankrot-parser-pro
