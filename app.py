@@ -41,7 +41,8 @@ templates = Jinja2Templates(directory="templates")
 def startup_event():
     init_database()
     # Очистка старых записей (старше 30 дней)
-    cleanup_old_records(days_to_keep=30)
+    # Временно отключено для отладки
+    # cleanup_old_records(days_to_keep=30)
 
 
 # Модели запросов/ответов
@@ -245,13 +246,16 @@ async def export_csv(
 
 
 @app.get("/api/run-parser")
-async def run_parser():
+async def run_parser(force: bool = False):
     """
     Запустить парсер вручную.
+    
+    Args:
+        force: Принудительно обновить данные, даже если парсинг уже был сегодня
     """
     try:
         from parser import run_parser as run_parser_func
-        run_parser_func()
+        run_parser_func(force=force)
         return {"status": "success", "message": "Парсер успешно запущен"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
