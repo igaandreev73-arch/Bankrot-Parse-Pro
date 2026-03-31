@@ -50,7 +50,8 @@ def init_database():
                 participants_count INTEGER,
                 trade_end_date TEXT,
                 parsed_at TEXT NOT NULL,
-                UNIQUE(lot_id, DATE(parsed_at))
+                parsed_date TEXT NOT NULL,  -- Дата без времени для уникальности
+                UNIQUE(lot_id, parsed_date)
             )
         """)
         
@@ -116,7 +117,9 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
     # Добавляем timestamp парсинга
     df = df.copy()
     parsed_at = datetime.now().isoformat()
+    parsed_date = date.today().isoformat()  # Только дата для уникальности
     df['parsed_at'] = parsed_at
+    df['parsed_date'] = parsed_date
     
     saved_count = 0
     with db_connection() as conn:
@@ -125,13 +128,12 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
         for _, row in df.iterrows():
             try:
                 # Проверяем, существует ли уже запись с таким lot_id за сегодня
-                today = date.today().isoformat()
                 cursor.execute(
                     """
-                    SELECT COUNT(*) FROM trades 
-                    WHERE lot_id = ? AND DATE(parsed_at) = DATE(?)
+                    SELECT COUNT(*) FROM trades
+                    WHERE lot_id = ? AND parsed_date = ?
                     """,
-                    (row['lot_id'], parsed_at)
+                    (row['lot_id'], parsed_date)
                 )
                 exists = cursor.fetchone()[0]
                 
@@ -145,14 +147,14 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
                     INSERT INTO trades (
                         lot_id, lot_name, initial_price, discount_percent,
                         final_price, region, property_type, participants_count,
-                        trade_end_date, parsed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        trade_end_date, parsed_at, parsed_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row['lot_id'], row['lot_name'], row['initial_price'],
                         row['discount_percent'], row['final_price'], row['region'],
                         row['property_type'], row['participants_count'],
-                        row['trade_end_date'], parsed_at
+                        row['trade_end_date'], parsed_at, parsed_date
                     )
                 )
                 saved_count += 1
