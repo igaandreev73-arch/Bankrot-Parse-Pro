@@ -64,7 +64,7 @@ def init_database():
             ('description', 'TEXT'),
             ('lot_url', 'TEXT'),
             ('source', 'TEXT DEFAULT \'ЕФРСБ\''),
-            ('created_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'),
+            ('created_at', 'TEXT'),
         ]
         
         for column_name, column_type in required_columns:
