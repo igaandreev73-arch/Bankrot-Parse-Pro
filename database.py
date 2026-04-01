@@ -49,11 +49,28 @@ def init_database():
                 property_type TEXT,
                 participants_count INTEGER,
                 trade_end_date TEXT,
+                source TEXT DEFAULT 'ЕФРСБ',  -- Источник данных (ЕФРСБ, Сбербанк-АСТ и т.д.)
+                lot_url TEXT,                 -- Ссылка на страницу лота
+                description TEXT,             -- Описание лота
                 parsed_at TEXT NOT NULL,
                 parsed_date TEXT NOT NULL,  -- Дата без времени для уникальности
                 UNIQUE(lot_id, parsed_date)
             )
         """)
+        
+        # Добавление отсутствующих столбцов (для совместимости с существующими таблицами)
+        required_columns = [
+            ('description', 'TEXT'),
+            ('lot_url', 'TEXT'),
+            ('source', 'TEXT DEFAULT \'ЕФРСБ\''),
+        ]
+        
+        for column_name, column_type in required_columns:
+            cursor.execute(f"PRAGMA table_info(trades)")
+            existing_columns = [col[1] for col in cursor.fetchall()]
+            if column_name not in existing_columns:
+                cursor.execute(f"ALTER TABLE trades ADD COLUMN {column_name} {column_type}")
+                logger.info(f"Added column '{column_name}' to trades table")
         
         # Создание таблицы analysis_cache для кеширования результатов анализа
         cursor.execute("""
@@ -103,10 +120,13 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
     
     # Приводим названия колонок к ожидаемым
     required_columns = [
-        'lot_id', 'lot_name', 'initial_price', 'discount_percent', 
-        'final_price', 'region', 'property_type', 'participants_count', 
+        'lot_id', 'lot_name', 'initial_price', 'discount_percent',
+        'final_price', 'region', 'property_type', 'participants_count',
         'trade_end_date'
     ]
+    
+    # Опциональные колонки (будут заполнены значениями по умолчанию если отсутствуют)
+    optional_columns = ['source', 'lot_url', 'description']
     
     # Проверяем наличие необходимых колонок
     for col in required_columns:
@@ -127,19 +147,24 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
         
         for _, row in df.iterrows():
             try:
-                # Проверяем, существует ли уже запись с таким lot_id за сегодня
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) FROM trades
-                    WHERE lot_id = ? AND parsed_date = ?
-                    """,
-                    (row['lot_id'], parsed_date)
-                )
-                exists = cursor.fetchone()[0]
+                # Временно отключаем проверку на дубликаты для тестирования
+                # cursor.execute(
+                #     """
+                #     SELECT COUNT(*) FROM trades
+                #     WHERE lot_id = ? AND parsed_date = ?
+                #     """,
+                #     (row['lot_id'], parsed_date)
+                # )
+                # exists = cursor.fetchone()[0]
+                #
+                # if exists > 0:
+                #     logger.debug(f"Lot {row['lot_id']} already exists today, skipping")
+                #     continue
                 
-                if exists > 0:
-                    logger.debug(f"Lot {row['lot_id']} already exists today, skipping")
-                    continue
+                # Получаем значения опциональных полей (или значения по умолчанию)
+                source = row.get('source', 'ЕФРСБ')
+                lot_url = row.get('lot_url', '')
+                description = row.get('description', '')
                 
                 # Вставляем новую запись
                 cursor.execute(
@@ -147,14 +172,14 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
                     INSERT INTO trades (
                         lot_id, lot_name, initial_price, discount_percent,
                         final_price, region, property_type, participants_count,
-                        trade_end_date, parsed_at, parsed_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        trade_end_date, source, lot_url, description, parsed_at, parsed_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row['lot_id'], row['lot_name'], row['initial_price'],
                         row['discount_percent'], row['final_price'], row['region'],
                         row['property_type'], row['participants_count'],
-                        row['trade_end_date'], parsed_at, parsed_date
+                        row['trade_end_date'], source, lot_url, description, parsed_at, parsed_date
                     )
                 )
                 saved_count += 1

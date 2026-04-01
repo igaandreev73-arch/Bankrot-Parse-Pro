@@ -62,6 +62,10 @@ class TradeResponse(BaseModel):
     participants_count: int
     trade_end_date: str
     parsed_at: str
+    parsed_date: str = ""
+    source: str = ""
+    lot_url: str = ""
+    description: str = ""
 
 
 class AnalysisResponse(BaseModel):
@@ -81,7 +85,7 @@ class StatsResponse(BaseModel):
 
 
 # Эндпоинты API
-@app.get("/api/trades", response_model=List[TradeResponse])
+@app.get("/api/trades", response_model=List[TradeResponse], response_model_exclude_none=False)
 async def get_trades(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),

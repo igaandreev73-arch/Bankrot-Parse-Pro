@@ -118,6 +118,26 @@
             </div>
         </div>
 
+        <!-- Топ рекомендации -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-star-fill text-warning"></i> Топ рекомендации
+                </h5>
+                <small class="text-muted">Лучшие предложения на основе анализа данных</small>
+            </div>
+            <div class="card-body">
+                <div class="row" id="topRecommendations">
+                    <!-- Рекомендации загружаются через JS -->
+                    <div class="col-12 text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Таблица данных -->
         <div class="card mt-4">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -129,6 +149,7 @@
                     <table class="table table-hover">
                         <thead>
                             <tr>
+                                <th>№</th>
                                 <th>ID</th>
                                 <th>Название</th>
                                 <th>Регион</th>
@@ -136,6 +157,7 @@
                                 <th>Скидка</th>
                                 <th>Тип имущества</th>
                                 <th>Анализ DeepSeek</th>
+                                <th>Ссылка</th>
                             </tr>
                         </thead>
                         <tbody id="tradesTable">
@@ -187,11 +209,90 @@
         let discountChart = null;
         let dailyChart = null;
 
+        // Загрузка топ рекомендаций
+        async function loadTopRecommendations() {
+            try {
+                // Получаем все лоты и фильтруем лучшие
+                const response = await fetch('/api/trades?limit=1000');
+                const trades = await response.json();
+                
+                // Фильтруем лоты с высокой скидкой (>25%) и сортируем
+                const topTrades = trades
+                    .filter(trade => trade.discount_percent >= 25)
+                    .sort((a, b) => b.discount_percent - a.discount_percent)
+                    .slice(0, 6); // Топ 6
+                
+                renderTopRecommendations(topTrades);
+            } catch (error) {
+                console.error('Ошибка загрузки рекомендаций:', error);
+                document.getElementById('topRecommendations').innerHTML =
+                    '<div class="col-12 text-center text-danger">Ошибка загрузки рекомендаций</div>';
+            }
+        }
+
+        // Отображение топ рекомендаций
+        function renderTopRecommendations(trades) {
+            const container = document.getElementById('topRecommendations');
+            
+            if (trades.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12 text-center">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> Нет лотов с высокой скидкой (>25%)
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = trades.map(trade => `
+                <div class="col-md-4 mb-3">
+                    <div class="card h-100 border-primary">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="mb-0">
+                                <i class="bi bi-tag"></i> ${trade.lot_id}
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <h6 class="card-title">${trade.lot_name}</h6>
+                            <p class="card-text">
+                                <small class="text-muted">
+                                    <i class="bi bi-geo-alt"></i> ${trade.region}<br>
+                                    <i class="bi bi-house"></i> ${trade.property_type}
+                                </small>
+                            </p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="badge bg-danger fs-6">
+                                        ${trade.discount_percent.toFixed(1)}% скидка
+                                    </span>
+                                </div>
+                                <div class="text-end">
+                                    <div class="text-success fw-bold">
+                                        ${formatPrice(trade.final_price)} руб.
+                                    </div>
+                                    <small class="text-muted">
+                                        <s>${formatPrice(trade.initial_price)} руб.</s>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-footer bg-transparent">
+                            <button class="btn btn-sm btn-outline-primary w-100" onclick="showAnalysis('${trade.lot_id}')">
+                                <i class="bi bi-graph-up"></i> Полный анализ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
         // Инициализация при загрузке
         document.addEventListener('DOMContentLoaded', function() {
             loadRegions();
             loadTrades();
             loadStats();
+            loadTopRecommendations();
         });
 
         // Обновление значения скидки
@@ -252,9 +353,14 @@
             totalTrades = trades.length;
             document.getElementById('totalTrades').textContent = totalTrades + ' записей';
             
-            trades.forEach(trade => {
+            // Рассчитываем стартовый номер с учетом пагинации
+            const startNumber = (currentPage - 1) * pageSize + 1;
+            
+            trades.forEach((trade, index) => {
+                const rowNumber = startNumber + index;
                 const row = document.createElement('tr');
                 row.innerHTML = `
+                    <td class="text-muted">${rowNumber}</td>
                     <td>${trade.lot_id}</td>
                     <td>${trade.lot_name}</td>
                     <td>${trade.region}</td>
@@ -269,6 +375,15 @@
                         <button class="btn btn-sm btn-outline-primary" onclick="showAnalysis('${trade.lot_id}')">
                             <i class="bi bi-graph-up"></i> Анализ
                         </button>
+                    </td>
+                    <td>
+                        ${trade.lot_url ? `
+                            <a href="${trade.lot_url}" target="_blank" class="btn btn-sm btn-outline-success" title="Перейти к лоту">
+                                <i class="bi bi-box-arrow-up-right"></i>
+                            </a>
+                        ` : `
+                            <span class="text-muted small">Нет ссылки</span>
+                        `}
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -394,10 +509,21 @@
             showLoader();
             
             try {
-                const response = await fetch(`/api/analyze/${lotId}`);
-                const analysis = await response.json();
+                // Параллельно запрашиваем анализ и данные лота
+                const [analysisResponse, tradeResponse] = await Promise.all([
+                    fetch(`/api/analyze/${lotId}`),
+                    fetch(`/api/trades?lot_id=${lotId}&limit=1`)
+                ]);
                 
-                renderAnalysisModal(analysis);
+                if (!analysisResponse.ok || !tradeResponse.ok) {
+                    throw new Error('Ошибка загрузки данных');
+                }
+                
+                const analysis = await analysisResponse.json();
+                const trades = await tradeResponse.json();
+                const trade = trades[0] || null;
+                
+                renderAnalysisModal(analysis, trade);
                 hideLoader();
                 
                 // Показать модальное окно
@@ -411,7 +537,7 @@
         }
 
         // Отображение анализа в модальном окне
-        function renderAnalysisModal(analysis) {
+        function renderAnalysisModal(analysis, trade) {
             const content = document.getElementById('analysisContent');
             
             const riskBadgeClass = {
@@ -426,16 +552,59 @@
                 'не рекомендуется': 'bg-danger'
             }[analysis.recommendation] || 'bg-secondary';
             
-            content.innerHTML = `
+            // Обновляем заголовок модального окна с названием лота
+            const modalTitle = document.querySelector('#analysisModal .modal-title');
+            if (trade && modalTitle) {
+                modalTitle.textContent = `Анализ лота: ${trade.lot_name}`;
+            }
+            
+            // HTML для информации о лоте (если есть данные)
+            const tradeInfoHtml = trade ? `
+                <div class="card mb-4">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="bi bi-info-circle"></i> Информация о лоте</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>ID лота:</strong> ${trade.lot_id}</p>
+                                <p><strong>Регион:</strong> ${trade.region}</p>
+                                <p><strong>Тип имущества:</strong> ${trade.property_type}</p>
+                                <p><strong>Начальная цена:</strong> ${formatPrice(trade.initial_price)} руб.</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Скидка:</strong>
+                                    <span class="badge ${getDiscountBadgeClass(trade.discount_percent)}">
+                                        ${trade.discount_percent.toFixed(1)}%
+                                    </span>
+                                </p>
+                                <p><strong>Итоговая цена:</strong> ${formatPrice(trade.final_price)} руб.</p>
+                                <p><strong>Количество участников:</strong> ${trade.participants_count}</p>
+                                <p><strong>Дата окончания торгов:</strong> ${trade.trade_end_date}</p>
+                            </div>
+                        </div>
+                        ${trade.source ? `<p><strong>Источник данных:</strong> ${trade.source}</p>` : ''}
+                        ${trade.lot_url ? `
+                            <div class="mt-3">
+                                <a href="${trade.lot_url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-box-arrow-up-right"></i> Перейти к лоту на сайте
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            ` : '';
+            
+            content.innerHTML = tradeInfoHtml + `
                 <div class="row">
                     <div class="col-md-6">
                         <div class="card mb-3">
                             <div class="card-header">Оценка ликвидности</div>
                             <div class="card-body">
                                 <div class="progress mb-3" style="height: 30px;">
-                                    <div class="progress-bar" role="progressbar" 
+                                    <div class="progress-bar" role="progressbar"
                                          style="width: ${analysis.liquidity_score}%;"
-                                         aria-valuenow="${analysis.liquidity_score}" 
+                                         aria-valuenow="${analysis.liquidity_score}"
                                          aria-valuemin="0" aria-valuemax="100">
                                         ${analysis.liquidity_score}/100
                                     </div>
@@ -448,13 +617,13 @@
                         <div class="card mb-3">
                             <div class="card-header">Рекомендации</div>
                             <div class="card-body">
-                                <p><strong>Уровень риска:</strong> 
+                                <p><strong>Уровень риска:</strong>
                                     <span class="badge ${riskBadgeClass}">${analysis.risk_level}</span>
                                 </p>
-                                <p><strong>Рекомендация:</strong> 
+                                <p><strong>Рекомендация:</strong>
                                     <span class="badge ${recBadgeClass}">${analysis.recommendation}</span>
                                 </p>
-                                <p><strong>Максимальная разумная цена:</strong> 
+                                <p><strong>Максимальная разумная цена:</strong>
                                     ${formatPrice(analysis.max_reasonable_price)} руб.
                                 </p>
                             </div>
@@ -473,7 +642,7 @@
                 </div>
                 <div class="mt-3 text-muted">
                     <small>
-                        Источник: ${analysis.source === 'cache' ? 'Кеш' : 'DeepSeek API'} 
+                        Источник: ${analysis.source === 'cache' ? 'Кеш' : 'DeepSeek API'}
                         | ${analysis.cached ? 'Закешировано' : 'Новый анализ'}
                     </small>
                 </div>
