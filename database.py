@@ -54,6 +54,7 @@ def init_database():
                 description TEXT,             -- Описание лота
                 parsed_at TEXT NOT NULL,
                 parsed_date TEXT NOT NULL,  -- Дата без времени для уникальности
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,  -- Дата и время создания записи
                 UNIQUE(lot_id, parsed_date)
             )
         """)
@@ -63,6 +64,7 @@ def init_database():
             ('description', 'TEXT'),
             ('lot_url', 'TEXT'),
             ('source', 'TEXT DEFAULT \'ЕФРСБ\''),
+            ('created_at', 'TEXT DEFAULT CURRENT_TIMESTAMP'),
         ]
         
         for column_name, column_type in required_columns:
@@ -172,14 +174,15 @@ def save_trades_to_db(df: pd.DataFrame) -> int:
                     INSERT INTO trades (
                         lot_id, lot_name, initial_price, discount_percent,
                         final_price, region, property_type, participants_count,
-                        trade_end_date, source, lot_url, description, parsed_at, parsed_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        trade_end_date, source, lot_url, description, parsed_at, parsed_date, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row['lot_id'], row['lot_name'], row['initial_price'],
                         row['discount_percent'], row['final_price'], row['region'],
                         row['property_type'], row['participants_count'],
-                        row['trade_end_date'], source, lot_url, description, parsed_at, parsed_date
+                        row['trade_end_date'], source, lot_url, description, parsed_at, parsed_date,
+                        datetime.now().isoformat()  # created_at
                     )
                 )
                 saved_count += 1
@@ -393,6 +396,31 @@ def cleanup_old_records(days_to_keep: int = 30) -> int:
         deleted = cursor.rowcount
     
     logger.info(f"Cleaned up {deleted} old records (older than {days_to_keep} days)")
+    return deleted
+
+
+def clear_database() -> int:
+    """
+    Полностью очищает таблицу trades.
+    
+    Returns:
+        Количество удаленных записей
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM trades")
+        count_before = cursor.fetchone()[0]
+        
+        cursor.execute("DELETE FROM trades")
+        deleted = cursor.rowcount
+        
+        # Сбрасываем автоинкремент
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name='trades'")
+        
+        cursor.execute("SELECT COUNT(*) FROM trades")
+        count_after = cursor.fetchone()[0]
+    
+    logger.info(f"Cleared database: deleted {deleted} records (was {count_before}, now {count_after})")
     return deleted
 
 

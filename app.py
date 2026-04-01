@@ -66,6 +66,7 @@ class TradeResponse(BaseModel):
     source: str = ""
     lot_url: str = ""
     description: str = ""
+    created_at: str = ""
 
 
 class AnalysisResponse(BaseModel):
@@ -261,6 +262,23 @@ async def run_parser(force: bool = False):
         from parser import run_parser as run_parser_func
         run_parser_func(force=force)
         return {"status": "success", "message": "Парсер успешно запущен"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/clear-database")
+async def clear_database_endpoint():
+    """
+    Очищает всю базу данных.
+    """
+    try:
+        from database import clear_database
+        deleted_count = clear_database()
+        return {
+            "status": "success",
+            "message": f"База данных очищена. Удалено {deleted_count} записей.",
+            "deleted_count": deleted_count
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

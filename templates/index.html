@@ -67,6 +67,9 @@
                 <button class="btn btn-secondary" onclick="exportCSV()">
                     <i class="bi bi-download"></i> Экспорт CSV
                 </button>
+                <button class="btn btn-danger" onclick="clearDatabase()">
+                    <i class="bi bi-trash"></i> Очистить базу
+                </button>
             </div>
         </div>
 
@@ -156,6 +159,7 @@
                                 <th>Начальная цена</th>
                                 <th>Скидка</th>
                                 <th>Тип имущества</th>
+                                <th>Дата создания</th>
                                 <th>Анализ DeepSeek</th>
                                 <th>Ссылка</th>
                             </tr>
@@ -371,6 +375,7 @@
                         </span>
                     </td>
                     <td>${trade.property_type}</td>
+                    <td class="text-muted small">${formatDateTime(trade.created_at || trade.parsed_at)}</td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary" onclick="showAnalysis('${trade.lot_id}')">
                             <i class="bi bi-graph-up"></i> Анализ
@@ -393,6 +398,23 @@
         // Форматирование цены
         function formatPrice(price) {
             return new Intl.NumberFormat('ru-RU').format(price);
+        }
+
+        // Форматирование даты и времени
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return 'Нет данных';
+            try {
+                const date = new Date(dateTimeStr);
+                return date.toLocaleString('ru-RU', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return dateTimeStr;
+            }
         }
 
         // Класс для бейджа скидки
@@ -668,6 +690,34 @@
             } catch (error) {
                 hideLoader();
                 alert('Ошибка запуска парсера: ' + error.message);
+            }
+        }
+
+        // Очистка базы данных
+        async function clearDatabase() {
+            if (!confirm('ВНИМАНИЕ: Это действие полностью очистит базу данных. Все записи будут удалены. Продолжить?')) {
+                return;
+            }
+            
+            showLoader();
+            
+            try {
+                const response = await fetch('/api/clear-database', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                hideLoader();
+                alert(result.message);
+                
+                // Обновить данные после очистки
+                setTimeout(() => {
+                    loadTrades();
+                    loadStats();
+                }, 1000);
+            } catch (error) {
+                hideLoader();
+                alert('Ошибка очистки базы данных: ' + error.message);
             }
         }
 
