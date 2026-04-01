@@ -251,17 +251,20 @@ async def export_csv(
 
 
 @app.get("/api/run-parser")
-async def run_parser(force: bool = False):
+async def run_parser(region: str = None, min_discount: float = 0, limit: int = 20, force: bool = True):
     """
-    Запустить парсер вручную.
+    Запустить парсер вручную с фильтрами.
     
     Args:
+        region: Регион для фильтрации (если None - все регионы)
+        min_discount: Минимальная скидка в процентах
+        limit: Максимальное количество записей для генерации
         force: Принудительно обновить данные, даже если парсинг уже был сегодня
     """
     try:
         from parser import run_parser as run_parser_func
-        run_parser_func(force=force)
-        return {"status": "success", "message": "Парсер успешно запущен"}
+        run_parser_func(region=region, min_discount=min_discount, limit=limit, force=force)
+        return {"status": "success", "message": f"Парсер успешно запущен с фильтрами: регион={region or 'все'}, мин. скидка={min_discount}%, лимит={limit}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -156,30 +156,31 @@ def parse_source() -> pd.DataFrame:
     return df
 
 
-def run_parser(force: bool = False) -> None:
+def run_parser(region: str = None, min_discount: float = 0, limit: int = 20, force: bool = True) -> None:
     """
     Основная функция запуска парсера.
-    Выполняет проверку даты последнего парсинга и запрашивает подтверждение у пользователя.
+    Выполняет парсинг данных с учетом фильтров.
     
     Args:
-        force: Если True, пропускает подтверждение и обновляет данные даже если парсинг уже был сегодня
+        region: Регион для фильтрации (если None - все регионы)
+        min_discount: Минимальная скидка в процентах
+        limit: Максимальное количество записей для генерации
+        force: Если True, пропускает проверку даты последнего парсинга
     """
     # Инициализация базы данных
     init_database()
     
-    # Проверяем дату последнего парсинга
-    last_parse = get_last_parse_date()
+    # Проверяем дату последнего парсинга, только если force=False
+    if not force:
+        last_parse = get_last_parse_date()
+        if last_parse:
+            last_date = datetime.fromisoformat(last_parse).date()
+            today = date.today()
+            if last_date == today:
+                print("Парсинг уже был сегодня. Используйте force=True для принудительного обновления.")
+                return
     
-    if last_parse:
-        last_date = datetime.fromisoformat(last_parse).date()
-        today = date.today()
-        
-        if last_date == today and not force:
-            # Парсинг уже был сегодня, но force=False - пропускаем
-            print("Парсинг уже был сегодня. Используйте force=True для принудительного обновления.")
-            return
-    
-    print("Запуск парсинга...")
+    print(f"Запуск парсинга с фильтрами: регион={region}, мин. скидка={min_discount}%, лимит={limit}")
     
     # Получаем данные
     df = parse_source()
@@ -187,6 +188,16 @@ def run_parser(force: bool = False) -> None:
     if df.empty:
         print("Нет данных для сохранения.")
         return
+    
+    # Применяем фильтры
+    if region:
+        df = df[df['region'] == region]
+    if min_discount > 0:
+        df = df[df['discount_percent'] >= min_discount]
+    
+    # Ограничиваем количество записей
+    if limit > 0 and len(df) > limit:
+        df = df.head(limit)
     
     # Сохраняем в базу данных
     saved_count = save_trades_to_db(df)

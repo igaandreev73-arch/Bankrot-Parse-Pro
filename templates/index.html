@@ -671,12 +671,23 @@
             `;
         }
 
-        // Запуск парсера
+        // Запуск парсера с фильтрами
         async function runParser() {
             showLoader();
             
+            // Получаем значения фильтров
+            const region = document.getElementById('regionFilter').value;
+            const minDiscount = document.getElementById('discountFilter').value;
+            const limit = document.getElementById('limitFilter').value;
+            
+            // Формируем URL с параметрами
+            let url = `/api/run-parser?force=true&min_discount=${minDiscount}&limit=${limit}`;
+            if (region) {
+                url += `&region=${encodeURIComponent(region)}`;
+            }
+            
             try {
-                const response = await fetch('/api/run-parser');
+                const response = await fetch(url);
                 const result = await response.json();
                 
                 hideLoader();
